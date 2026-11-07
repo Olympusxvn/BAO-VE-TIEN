@@ -4,6 +4,9 @@
 // unapproved batch. The advisor (POST /:id/advise) only recommends;
 // OPENAI_API_KEY / OPENAI_MODEL come from env (see .env.example).
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express, { type Express, type Request, type Response } from 'express';
 import { adviseBatch } from './backend/advisor.js';
 import { payoutEvents } from './backend/events.js';
@@ -332,6 +335,24 @@ export function createApp(deps: AppDeps = {}): { app: Express; store: TreasurySt
       payoutEvents.off('payout_update', onUpdate);
     });
   });
+
+  // Production: serve the built frontend (frontend/dist) when it exists.
+  // API routes above always win; anything else that is not /api/* falls
+  // back to index.html (single-page app). When frontend/dist does not
+  // exist the server stays API-only. No API route or approval logic
+  // is changed by this.
+  const frontendDist = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    'frontend',
+    'dist',
+  );
+  if (existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get(/^(?!\/api\/).*/, (_req: Request, res: Response) => {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+  }
 
   return { app, store };
 }
