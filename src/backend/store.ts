@@ -20,6 +20,7 @@ export interface Batch {
   senderBatchId: string;
   items: PayoutItem[];
   status: BatchStatus;
+  /** Authorized to execute: a human Approve click, or a passed auto gate. */
   approved: boolean;
   approvalBlockReasons: string[];
   payoutBatchId?: string;
@@ -30,6 +31,30 @@ export interface Batch {
   recommendation?: AdvisorRecommendation;
   advisorReason?: string;
   modelUsed?: string;
+  advisorSource?: 'llm' | 'rule';
+  /** True when the batch was executed automatically in Auto mode. */
+  autoExecuted?: boolean;
+  /** Reasons the auto gate blocked this batch (Auto mode only). */
+  autoBlockReasons?: string[];
+}
+
+/** Treasury approval mode. HUMAN (default): every batch needs a human
+ * Approve click. AUTO (opt-in): a batch that passes the policy, the
+ * tighter auto caps, an EXECUTE_NOW recommendation and a low FX risk
+ * score executes automatically — supervised autonomy, not unsupervised. */
+export type TreasuryMode = 'HUMAN' | 'AUTO';
+
+export type AuditKind =
+  | 'mode-change'
+  | 'pause-change'
+  | 'auto-execution'
+  | 'auto-blocked';
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  kind: AuditKind;
+  detail: Record<string, unknown>;
 }
 
 export class TreasuryStore {
@@ -37,6 +62,41 @@ export class TreasuryStore {
   /** Recipient allow-list (max 20, enforced by the guard). Empty by default; managed by the treasurer. */
   readonly allowlist: string[] = [];
   spentTodayUsd = 0;
+  /** USD spent by Auto-mode executions today (separate auto budget). */
+  autoSpentTodayUsd = 0;
+  /** Approval mode (default HUMAN) and the Auto pause / kill switch. */
+  mode: TreasuryMode = 'HUMAN';
+  paused = false;
+  /** In-memory audit log (chronological). Demo only, lost on restart. */
+  readonly audit: AuditEntry[] = [];
+
+  logAudit(kind: AuditKind, detail: Record<string, unknown>): AuditEntry {
+    const entry: AuditEntry = {
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      kind,
+      detail,
+    };
+    this.audit.push(entry);
+    return entry;
+  }
+
+  /** Changes the mode and logs it. Returns false when unchanged. */
+  setMode(mode: TreasuryMode): boolean {
+    if (mode === this.mode) return false;
+    const from = this.mode;
+    this.mode = mode;
+    this.logAudit('mode-change', { from, to: mode });
+    return true;
+  }
+
+  /** Pauses / resumes Auto mode and logs it. Returns false when unchanged. */
+  setPaused(paused: boolean): boolean {
+    if (paused === this.paused) return false;
+    this.paused = paused;
+    this.logAudit('pause-change', { paused, mode: this.mode });
+    return true;
+  }
 
   createBatch(items: PayoutItem[]): Batch {
     const batch: Batch = {

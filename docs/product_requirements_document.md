@@ -99,12 +99,15 @@ This Product Requirements Document (PRD) defines the functional requirements, us
 
 ---
 
-### Feature 2.4: Human Approval Gate & Caps
-* **Description:** No batch reaches PayPal without a human approval. The GPT-4o advisor recommends; the treasurer approves in the grid.
+### Feature 2.4: Approval Modes — Human-default / Auto-supervised
+* **Description:** Human mode (default): no batch reaches PayPal without a human approval. The GPT-4o advisor recommends; the treasurer approves in the grid. Auto mode (opt-in): a batch that passes the policy, the tighter auto caps, an EXECUTE_NOW recommendation and a low FX risk score executes automatically — supervised autonomy within a pre-approved policy, never unsupervised spending. (Modes added 2026-11-07; this supersedes the 2026-11-06 "human approval mandatory before every batch" wording. See SPEC §3.1.)
 * **Requirements:**
-  * Approve button ("Approve & Execute") per batch, disabled unless the batch is within caps (per-item $250, per-batch $500, daily $1,000 USD-equivalent), every recipient is on the allow-list (max 20), and the GPT-4o recommendation is EXECUTE_NOW. The disabled reason is shown.
+  * Approve button ("Approve & Execute") per batch, disabled unless the batch is within caps (per-item $250, per-batch $500, daily $1,000 USD-equivalent), every recipient is on the allow-list (max 20), and the GPT-4o recommendation is EXECUTE_NOW. The disabled reason is shown. A manual Approve click still works in Auto mode.
   * Over-cap or off-allow-list batches are `AWAITING_APPROVAL` and are never sent. A treasurer override still cannot exceed the daily cap.
-  * Backend re-checks caps, allow-list and daily spend in `POST /api/treasury/batches/:id/approve` and in `executeBatchPayout`. There is no API path that executes an unapproved batch.
+  * Backend re-checks caps, allow-list and daily spend in `POST /api/treasury/batches/:id/approve` and in `executeBatchPayout`. There is no API path that executes an unauthorized batch; auto execution uses the same `executeBatchPayout` path.
+  * Auto mode executes only when ALL hold: advisor `EXECUTE_NOW`, standard policy passes, tighter auto caps hold (per-item ≤ $100, per-batch ≤ $250, auto-spent-today + batch total ≤ $500), `fxRiskScore < 3.0`, mode AUTO and not paused. Any failing condition leaves the batch `AWAITING_APPROVAL` with the blocking reasons shown.
+  * Mode endpoints: `GET /api/treasury/mode`, `POST /api/treasury/mode { mode: 'HUMAN' | 'AUTO' }`, `POST /api/treasury/mode/pause { paused: boolean }`, `GET /api/treasury/audit`. Every mode change, pause change, auto execution (with policy snapshot + advisor output) and blocked auto evaluation is logged.
+  * Warnings: enable-confirm dialog (exact copy in SPEC §3.1) before Auto can be turned on — enabling without confirming is impossible in the UI; always-on banner while Auto is on ("Auto mode is ON — qualifying batches execute automatically. Pause anytime."); amber Auto badge (vs blue/green Human badge); per-batch notice on auto-executed batches ("Executed automatically in Auto mode — policy + advisor output logged"); pause button always visible while Auto is on.
 
 ### Epic 3: Asynchronous Webhook Synchronization
 

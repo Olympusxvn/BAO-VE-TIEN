@@ -4,12 +4,18 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   ALLOWLIST_MAX,
+  AUTO_DAILY_CAP_USD,
+  AUTO_FX_RISK_MAX,
+  AUTO_PER_BATCH_CAP_USD,
+  AUTO_PER_ITEM_CAP_USD,
   DAILY_CAP_USD,
   PAYOUT_CURRENCIES,
   type AdviseResult,
   type Batch,
+  type ModeState,
   type PayoutCurrency,
 } from './api';
+import { AUTO_BANNER, AUTO_ENABLE_WARNING, AUTO_EXECUTED_NOTICE, AUTO_PAUSED_BANNER } from './modeStrings';
 
 export function SummaryCards({
   batches,
@@ -154,6 +160,18 @@ export function AdvisorPanel({
               : ''}
           </dd>
         </div>
+        {batch.autoExecuted && (
+          <div>
+            <dt>Execution</dt>
+            <dd className="auto-notice">{AUTO_EXECUTED_NOTICE}</dd>
+          </div>
+        )}
+        {batch.autoBlockReasons && batch.autoBlockReasons.length > 0 && (
+          <div>
+            <dt>Auto mode</dt>
+            <dd className="error-text">Auto-execution blocked: {batch.autoBlockReasons.join('; ')}</dd>
+          </div>
+        )}
         {batch.payoutBatchId && (
           <div>
             <dt>PayPal batch</dt>
@@ -176,6 +194,71 @@ export function AdvisorPanel({
         {asking ? 'Asking advisor…' : 'Ask advisor'}
       </button>
     </section>
+  );
+}
+
+/** Always-on banner while Auto mode is on (or paused). Never hidden. */
+export function ModeBanner({
+  modeState,
+  onPause,
+  onResume,
+  pausing,
+}: {
+  modeState: ModeState;
+  onPause: () => void;
+  onResume: () => void;
+  pausing: boolean;
+}) {
+  if (modeState.mode !== 'AUTO') return null;
+  return (
+    <div className="banner-auto" role="status">
+      <span>{modeState.paused ? AUTO_PAUSED_BANNER : AUTO_BANNER}</span>
+      {modeState.paused ? (
+        <button type="button" className="btn-warning" disabled={pausing} onClick={onResume}>
+          {pausing ? 'Resuming…' : 'Resume Auto'}
+        </button>
+      ) : (
+        <button type="button" className="btn-warning" disabled={pausing} onClick={onPause}>
+          {pausing ? 'Pausing…' : 'Pause Auto'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Confirm dialog shown before Auto mode can be enabled. There is no
+ * path from the UI to Auto mode that skips this confirmation.
+ */
+export function AutoConfirmDialog({
+  onConfirm,
+  onCancel,
+  confirming,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirming: boolean;
+}) {
+  return (
+    <div className="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="auto-confirm-title">
+      <div className="dialog">
+        <h2 id="auto-confirm-title">Enable Auto mode?</h2>
+        <p>{AUTO_ENABLE_WARNING}</p>
+        <p className="muted">
+          Auto caps: item ≤ ${AUTO_PER_ITEM_CAP_USD} · batch ≤ ${AUTO_PER_BATCH_CAP_USD} · daily
+          ≤ ${AUTO_DAILY_CAP_USD} · FX risk score &lt; {AUTO_FX_RISK_MAX}. A batch that fails any
+          check stays awaiting approval.
+        </p>
+        <div className="dialog-actions">
+          <button type="button" className="btn-warning" disabled={confirming} onClick={onConfirm}>
+            {confirming ? 'Enabling…' : 'Enable Auto mode'}
+          </button>
+          <button type="button" className="btn-secondary" disabled={confirming} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

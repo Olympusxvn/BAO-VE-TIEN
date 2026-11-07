@@ -40,7 +40,7 @@
 
 # Payout Currencies (Fixed 2026-11-06): Payouts are sent ONLY in `USD`, `EUR`, `GBP`, `SGD`. VND is NOT a PayPal REST Payouts currency and must never appear as a payout `currency` value. A VND invoice is displayed in VND and converted to USD at the Frankfurter rate for the PayPal call, with the rate shown.
 #
-# FX Source & AI Identity (Fixed 2026-11-06; model made configurable 2026-11-06): The sole runtime AI provider is OpenAI. The model is configurable via the `OPENAI_MODEL` env var, default `gpt-4o` (key in `OPENAI_API_KEY`, also env only). Switching models is a config change only — no code change, no new trust boundary, and the output is still re-validated against the invoice before signing. GPT-4o is the default, NOT a requirement: any OpenAI chat-completion model may be used. The sole FX source is the Frankfurter API (ECB reference rates), `GET https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,SGD`, refreshed hourly and cached. If the FX source or GPT-4o times out or rate-limits, the advisor returns HOLD with a rule-based score and never auto-executes a payout.
+# FX Source & AI Identity (Fixed 2026-11-06; model made configurable 2026-11-06): The sole runtime AI provider is OpenAI. The model is configurable via the `OPENAI_MODEL` env var, default `gpt-4o` (key in `OPENAI_API_KEY`, also env only). Switching models is a config change only — no code change, no new trust boundary, and the output is still re-validated against the invoice before signing. GPT-4o is the default, NOT a requirement: any OpenAI chat-completion model may be used. The sole FX source is the Frankfurter API (ECB reference rates), `GET https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,SGD`, refreshed hourly and cached. If the FX source or GPT-4o times out or rate-limits, the advisor returns HOLD with a rule-based score; a HOLD recommendation never executes in either mode (in Human mode nothing executes without a human Approve click; in Auto mode only EXECUTE_NOW within policy can execute — see the approval-modes rule below).
 #
 # Strict Adherence to Current Scope (No Overbuilding):
 
@@ -118,11 +118,23 @@
 
 # 
 
-# Approval Gate & Caps (Fixed 2026-11-06):
+# Approval Gate & Caps (Fixed 2026-11-06; modes added 2026-11-07 — this rule
+# supersedes the 2026-11-06 "human approval mandatory before every batch"
+# wording. The old sentence no longer applies; see SPEC §3.1):
 #
-# Human approval is MANDATORY before every batch. The AI recommends, the human approves, PayPal executes. There is NO code path that executes an unapproved batch.
+# Human-default / Auto-supervised. HUMAN mode (default): the AI recommends,
+# the human approves, PayPal executes — every batch needs a human Approve
+# click, and there is NO auto-execution path. AUTO mode (opt-in): a batch
+# executes automatically ONLY when it passes the standard policy AND the
+# tighter auto caps, the advisor recommends EXECUTE_NOW and fxRiskScore <
+# 3.0. In both modes there is NO code path that executes an unauthorized
+# batch: auto execution goes through the SAME executeBatchPayout with the
+# policy re-checked, and a manual Approve click still works in Auto mode.
+# A HOLD recommendation never executes in either mode.
 #
 # Demo caps (env-configurable): per-item $250, per-batch $500, daily $1,000 USD-equivalent. Recipient allow-list max 20, managed by the treasurer. A batch over any cap, or with any recipient off the allow-list, is `AWAITING_APPROVAL` and is NEVER sent to PayPal. A treasurer override still cannot exceed the daily cap. The backend re-checks caps, allow-list and daily spend in `POST /api/treasury/batches/:id/approve` AND in `executeBatchPayout` before any PayPal call; the disabled Approve button in the UI is never the only defence.
+#
+# Auto-mode caps (tighter, 2026-11-07): per-item $100, per-batch $250, auto daily $500 (auto-spent-today budget), fxRiskScore < 3.0. Any failing condition leaves the batch AWAITING_APPROVAL with the blocking reasons shown. Pause (POST /api/treasury/mode/pause) stops all auto-execution immediately. Every mode change, pause change, auto execution (with policy snapshot + advisor output) and blocked auto evaluation is written to the audit log (GET /api/treasury/audit). Auto mode warns explicitly: the enable-confirm dialog, the always-on banner, the amber Auto badge and the per-batch notice (exact copy in SPEC §3.1 and frontend/src/modeStrings.ts).
 #
 # PII Masking Rule:
 

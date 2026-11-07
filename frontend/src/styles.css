@@ -508,3 +508,106 @@ footer {
   border-radius: 8px;
   overflow: hidden;
 }
+
+/* Approval modes (Human / Auto) — PayPal palette, flat, no gradients. */
+.btn-secondary {
+  background: #fff;
+  color: var(--navy);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 700;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.btn-warning {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: #fde68a;
+}
+
+.btn-mode {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.mode-badge {
+  text-transform: none;
+}
+
+.mode-human {
+  background: #dbeafe;
+  color: var(--navy);
+}
+
+.mode-auto {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.banner-auto {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+.auto-notice {
+  color: #92400e;
+  font-weight: 600;
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 20 53 / 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 50;
+}
+
+.dialog {
+  background: var(--card);
+  border-radius: 12px;
+  max-width: 520px;
+  width: 100%;
+  padding: 24px;
+}
+
+.dialog h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  color: var(--ink);
+}
+
+.dialog p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}

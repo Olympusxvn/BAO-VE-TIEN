@@ -93,7 +93,7 @@ Mid-market cross-border enterprises, D2C brands, and global digital platforms fa
 | **API Wrapper** | **PayoutGuard (own code)** | Validates payloads at runtime and translates API errors. The APIMatic Context Plugin was used at build time only to verify the client against the PayPal OpenAPI spec. |
 | **Frontend UI** | **AG Grid Community** | Community data grid (MIT), dynamic currency grouping, in-app summary cards. |
 | **Payments API** | **PayPal Payouts REST API** | Executes global multi-currency batch payouts (`/v1/payments/payouts`). |
-| **FX Rates** | **Frankfurter API (ECB reference rates)** | Sole FX source: `GET https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,SGD`, no key, refreshed hourly and cached. If the FX source or GPT-4o is unavailable, the advisor returns HOLD with a rule-based score and never auto-executes. |
+| **FX Rates** | **Frankfurter API (ECB reference rates)** | Sole FX source: `GET https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,SGD`, no key, refreshed hourly and cached. If the FX source or GPT-4o is unavailable, the advisor returns HOLD with a rule-based score; a HOLD recommendation never executes in either approval mode (see SPEC §3.1). |
 | **Real-time Events**| **PayPal Webhooks** | Captures asynchronous payout confirmations (`PAYMENT.PAYOUTSBATCH.*`). |
 | **Backend** | **Node.js / Python** | Middleware orchestration, security, signature verification, REST endpoints. |
 

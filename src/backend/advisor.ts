@@ -6,9 +6,11 @@
 // recipient emails are NEVER sent. LLM output is re-validated and
 // grounded against the batch before use. On ANY failure (no key, LLM
 // error, invalid JSON, grounding failure, FX unavailable) the advisor
-// returns HOLD with a rule-based score and never auto-executes.
-// This route never approves or executes anything: execution stays behind
-// POST /api/treasury/batches/:id/approve only.
+// returns HOLD with a rule-based score; a HOLD recommendation never
+// executes in either mode.
+// This route never approves or executes anything itself: execution stays
+// behind the manual approve endpoint or the Auto-mode gate (SPEC §3.1),
+// both of which re-check the policy before any PayPal call.
 import { getFxRates, toUsd, type FxRates } from './fx.js';
 import { PayoutGuard } from '../guard/payoutGuard.js';
 import type { Batch } from './store.js';

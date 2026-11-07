@@ -9,10 +9,19 @@ import {
   type AdviseResult,
   type Batch,
   type FxRates,
+  type ModeState,
   type PayoutCurrency,
+  type TreasuryMode,
 } from './api';
 import { LedgerGrid, toGridRows } from './LedgerGrid';
-import { AdvisorPanel, AllowlistManager, CreateBatchForm, SummaryCards } from './Panels';
+import {
+  AdvisorPanel,
+  AllowlistManager,
+  AutoConfirmDialog,
+  CreateBatchForm,
+  ModeBanner,
+  SummaryCards,
+} from './Panels';
 
 type SseState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
@@ -26,6 +35,9 @@ export default function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [modeState, setModeState] = useState<ModeState | null>(null);
+  const [showAutoConfirm, setShowAutoConfirm] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
   const errorTimer = useRef<number | null>(null);
 
   const showError = useCallback((message: string) => {
@@ -43,12 +55,14 @@ export default function App() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, { allowlist: list2 }] = await Promise.all([
+      const [list, { allowlist: list2 }, mode] = await Promise.all([
         api.listBatches(),
         api.getAllowlist(),
+        api.getMode(),
       ]);
       setBatches(list);
       setAllowlist(list2);
+      setModeState(mode);
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to load the ledger.');
     } finally {
@@ -190,6 +204,56 @@ export default function App() {
     [showError],
   );
 
+  /**
+   * Mode toggle. Switching to AUTO always opens the confirm dialog —
+   * there is no UI path to Auto mode that skips confirmation.
+   * Switching back to HUMAN is immediate and always safe.
+   */
+  const handleModeToggle = useCallback(() => {
+    if (!modeState) return;
+    if (modeState.mode === 'HUMAN') {
+      setShowAutoConfirm(true);
+      return;
+    }
+    void (async () => {
+      setModeBusy(true);
+      try {
+        setModeState(await api.setMode('HUMAN'));
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Failed to switch mode.');
+      } finally {
+        setModeBusy(false);
+      }
+    })();
+  }, [modeState, showError]);
+
+  const handleConfirmAuto = useCallback(async () => {
+    setModeBusy(true);
+    try {
+      const next: ModeState = await api.setMode('AUTO');
+      setModeState(next);
+      setShowAutoConfirm(false);
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to enable Auto mode.');
+    } finally {
+      setModeBusy(false);
+    }
+  }, [showError]);
+
+  const handlePause = useCallback(
+    async (paused: boolean) => {
+      setModeBusy(true);
+      try {
+        setModeState(await api.setPaused(paused));
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Failed to change pause state.');
+      } finally {
+        setModeBusy(false);
+      }
+    },
+    [showError],
+  );
+
   const sseLabel: Record<SseState, string> = {
     connecting: 'Live updates: connecting…',
     connected: 'Live updates: connected',
@@ -209,6 +273,34 @@ export default function App() {
         </div>
         <div className="topbar-right">
           <span className="pill pill-sandbox">PayPal Sandbox</span>
+          {modeState && (
+            <>
+              <span
+                className={`badge mode-badge ${modeState.mode === 'AUTO' ? 'mode-auto' : 'mode-human'}`}
+                title={
+                  modeState.mode === 'AUTO'
+                    ? 'Auto mode: qualifying batches execute automatically'
+                    : 'Human mode: every batch needs a human Approve click'
+                }
+              >
+                {modeState.mode === 'AUTO' ? 'Auto mode' : 'Human mode'}
+                {modeState.mode === 'AUTO' && modeState.paused ? ' — paused' : ''}
+              </span>
+              <button
+                type="button"
+                className="btn-secondary btn-mode"
+                disabled={modeBusy}
+                onClick={handleModeToggle}
+                title={
+                  modeState.mode === 'AUTO'
+                    ? 'Switch back to Human mode'
+                    : 'Switch to Auto mode (shows a confirmation first)'
+                }
+              >
+                {modeState.mode === 'AUTO' ? 'Switch to Human' : 'Switch to Auto'}
+              </button>
+            </>
+          )}
           <span
             className={`pill pill-sse sse-${sseState}`}
             title={sseLabel[sseState]}
@@ -221,6 +313,14 @@ export default function App() {
       </header>
 
       <main>
+        {modeState && (
+          <ModeBanner
+            modeState={modeState}
+            onPause={() => void handlePause(true)}
+            onResume={() => void handlePause(false)}
+            pausing={modeBusy}
+          />
+        )}
         {error && (
           <div className="banner-error" role="alert">
             <span>{error}</span>
@@ -284,9 +384,18 @@ export default function App() {
       </main>
 
       <footer>
-        Sandbox only. No real money moves here. The AI recommends, a human
-        approves, PayPal executes.
+        Sandbox only. No real money moves here.{' '}
+        {modeState?.mode === 'AUTO'
+          ? 'Auto mode is ON: qualifying batches execute automatically within the pre-approved policy — pause anytime.'
+          : 'Human mode: the AI recommends, a human approves, PayPal executes.'}
       </footer>
+      {showAutoConfirm && (
+        <AutoConfirmDialog
+          onConfirm={() => void handleConfirmAuto()}
+          onCancel={() => setShowAutoConfirm(false)}
+          confirming={modeBusy}
+        />
+      )}
     </div>
   );
 }

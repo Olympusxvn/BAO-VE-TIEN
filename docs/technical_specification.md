@@ -115,13 +115,24 @@ export interface PayoutItem {
 // src/guard/payoutGuard.ts
 import { PayoutItem } from '../models/PayoutItem';
 
-// Approval policy (fixed 2026-11-06; demo sandbox caps, env-configurable).
-// Human approval is mandatory before every batch. The AI recommends,
-// the human approves, PayPal executes. No auto-execution path exists.
+// Approval policy (fixed 2026-11-06; demo sandbox caps, env-configurable;
+// modes added 2026-11-07 — see §3.1).
+// Human mode (default): the AI recommends, the human approves, PayPal
+// executes. Auto mode (opt-in): a batch executes automatically only
+// when it passes the policy AND the tighter auto caps, the advisor
+// recommends EXECUTE_NOW and the FX risk score is low. In both modes
+// there is no code path that executes an unauthorized batch.
 export const PER_ITEM_CAP_USD = 250;
 export const PER_BATCH_CAP_USD = 500;
 export const DAILY_CAP_USD = 1000;
 export const RECIPIENT_ALLOWLIST_MAX = 20;
+
+// Tighter Auto-mode caps (2026-11-07). Auto execution requires these
+// in addition to the standard caps above.
+export const AUTO_PER_ITEM_CAP_USD = 100;
+export const AUTO_PER_BATCH_CAP_USD = 250;
+export const AUTO_DAILY_CAP_USD = 500;
+export const AUTO_FX_RISK_MAX = 3.0;
 
 export class PayoutGuard {
   // Own runtime guard. NOT an APIMatic product. APIMatic was used at build time only (see docs/APIMATIC.md).
@@ -217,6 +228,26 @@ export class PayoutGuard {
 
 ---
 
+### 3.1 Approval Modes — Human-default / Auto-supervised (added 2026-11-07)
+
+Two treasury-level modes, stored in the store, default **HUMAN**.
+
+- **Human mode (default).** Exactly the 2026-11-06 behaviour: every batch needs a human Approve click; no auto-execution path. A batch that was assessed stays `AWAITING_APPROVAL` until the treasurer approves it.
+- **Auto mode (opt-in).** A batch executes automatically ONLY when ALL of these hold: (a) the advisor recommendation is `EXECUTE_NOW`, (b) the batch passes the existing policy checks (per-item $250, per-batch $500, daily $1,000, allow-list), (c) the tighter Auto caps hold — per-item ≤ $100, per-batch ≤ $250, auto-spent-today + batch total ≤ $500, (d) `fxRiskScore < 3.0` (the green band), (e) the mode is AUTO and not paused. If any condition fails, the batch stays `AWAITING_APPROVAL` with the blocking reasons shown — never executes.
+- **One execution path.** Auto execution goes through the SAME `executeBatchPayout` as a manual Approve, with the policy re-checked inside it (defence in depth). There is no second, weaker path. A manual Approve click still works in Auto mode.
+- **Trigger points.** The server evaluates auto-execution after batch creation and after each advise call. Execution attempts and their outcomes are recorded in the in-memory audit log with the policy snapshot + advisor output at the time.
+- **Pause / kill switch.** `POST /api/treasury/mode/pause { paused: boolean }` stops all auto-execution immediately; paused batches stay `AWAITING_APPROVAL`. Endpoints: `GET /api/treasury/mode` (current mode + paused flag), `POST /api/treasury/mode { mode: 'HUMAN' | 'AUTO' }`, `POST /api/treasury/mode/pause { paused: boolean }`, `GET /api/treasury/audit` (mode changes, pause changes, auto executions, blocked evaluations).
+- **Warnings (exact copy).** Enable-confirm dialog: "Auto mode executes batches automatically when they pass policy — no per-batch approval. Waiting for approval can mean missing an FX window. Only enable Auto mode if you trust the policy, caps, and allow-list. You can pause it anytime." Always-on banner while Auto is on: "Auto mode is ON — qualifying batches execute automatically. Pause anytime." Plus an amber Auto badge (vs blue/green Human badge) and a per-batch notice on auto-executed batches ("Executed automatically in Auto mode — policy + advisor output logged"). Enabling Auto mode without confirming is impossible in the UI.
+- **Why Auto exists (user rationale, 2026-11-07).** Waiting for human approval can mean missing the FX window — enable Auto only if confident in the policy. Auto is supervised autonomy within a pre-approved policy, not unsupervised spending.
+
+| Cap | Human (manual approve) | Auto (automatic) |
+| --- | --- | --- |
+| Per-item | $250 | $100 |
+| Per-batch | $500 | $250 |
+| Daily | $1,000 | $500 (auto-spent-today budget) |
+| FX risk score | no limit | < 3.0 |
+| Advisor | EXECUTE_NOW required | EXECUTE_NOW required |
+
 ## 4. PayPal API Integration & Webhook Listener (Node.js Controller)
 
 ### 4.1 OAuth2 Token Retrieval & Batch Dispatcher
@@ -257,8 +288,12 @@ export class PayPalPayoutService {
     spentTodayUsd: number; allowlist: string[];
   }): Promise<any> {
     const { payoutPayload } = batch;
-    // 0. Approval policy FIRST: no human approval, no PayPal call.
-    // Over-cap or off-allow-list batches are AWAITING_APPROVAL, never sent.
+    // 0. Authorization FIRST: no human approval and no passed auto
+    // gate, no PayPal call. Over-cap or off-allow-list batches are
+    // AWAITING_APPROVAL, never sent. Auto mode uses this same path —
+    // the server calls executeBatchPayout only after validateAutoPolicy
+    // passes (policy + tighter auto caps + EXECUTE_NOW + low FX risk),
+    // and this re-check is the second line of defence.
     const policyErrors = PayoutGuard.validateBatchPolicy(batch);
     if (policyErrors.length > 0) {
       throw new Error(`HumanApprovalRequired: ${policyErrors.join('; ')}`);
@@ -291,15 +326,25 @@ export class PayPalPayoutService {
 }
 ```
 
-### 4.2 Approve Endpoint (Human Approval Gate)
+### 4.2 Approve Endpoint & Auto Execution (Approval Gates)
 
-`POST /api/treasury/batches/:id/approve` — the only path from DRAFT /
+`POST /api/treasury/batches/:id/approve` — the manual path from DRAFT /
 AWAITING_APPROVAL to APPROVED. Called by the treasurer clicking
 "Approve & Execute" in the grid. The backend re-checks caps, allow-list
 and daily spend at approve time (not only at render time), so a
 disabled button in the UI is never the only defence. A batch that fails
 the policy check stays AWAITING_APPROVAL with the blocking reasons
 shown. There is no API path that executes an unapproved batch.
+
+In **Auto mode** (see §3.1) the server evaluates the same gate
+automatically after batch creation and after each advise call: a batch
+that passes the standard policy AND the tighter auto caps, with an
+`EXECUTE_NOW` recommendation and `fxRiskScore < 3.0`, executes through
+the same `executeBatchPayout` with the policy re-checked. A manual
+Approve click still works in Auto mode. Auto executions and blocked
+evaluations are written to the audit log (`GET /api/treasury/audit`)
+with the policy snapshot + advisor output at the time; pausing
+(`POST /api/treasury/mode/pause`) stops all auto-execution immediately.
 
 ### 4.3 Webhook Handler (`PAYMENT.PAYOUTSBATCH.SUCCESS`)
 

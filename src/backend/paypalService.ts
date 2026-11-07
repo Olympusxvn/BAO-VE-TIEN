@@ -111,8 +111,9 @@ export class PayPalPayoutService {
   }
 
   public async executeBatchPayout(batch: BatchExecutionInput): Promise<PayoutBatchResult> {
-    // 0. Approval policy FIRST: no human approval, no PayPal call.
-    // Over-cap or off-allow-list batches are AWAITING_APPROVAL, never sent.
+    // 0. Authorization FIRST: no human approval and no passed auto gate,
+    // no PayPal call. Over-cap or off-allow-list batches are
+    // AWAITING_APPROVAL, never sent.
     const policyErrors = PayoutGuard.validateBatchPolicy(batch);
     if (policyErrors.length > 0) {
       throw new HumanApprovalRequired(policyErrors);

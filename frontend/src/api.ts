@@ -51,6 +51,25 @@ export interface Batch {
   recommendation?: Recommendation;
   advisorReason?: string;
   modelUsed?: string;
+  advisorSource?: 'llm' | 'rule';
+  autoExecuted?: boolean;
+  autoBlockReasons?: string[];
+}
+
+export type TreasuryMode = 'HUMAN' | 'AUTO';
+
+export interface ModeState {
+  mode: TreasuryMode;
+  paused: boolean;
+  autoCaps: { perItem: number; perBatch: number; daily: number; fxRiskMax: number };
+  caps: { perItem: number; perBatch: number; daily: number };
+}
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  kind: 'mode-change' | 'pause-change' | 'auto-execution' | 'auto-blocked';
+  detail: Record<string, unknown>;
 }
 
 export interface AdviseResult {
@@ -60,6 +79,9 @@ export interface AdviseResult {
   reason: string;
   model: string;
   source: 'llm' | 'rule';
+  autoExecuted?: boolean;
+  status?: BatchStatus;
+  payoutBatchId?: string;
 }
 
 export const PAYOUT_CURRENCIES: readonly PayoutCurrency[] = ['USD', 'EUR', 'GBP', 'SGD'];
@@ -68,6 +90,13 @@ export const PER_ITEM_CAP_USD = 250;
 export const PER_BATCH_CAP_USD = 500;
 export const DAILY_CAP_USD = 1000;
 export const ALLOWLIST_MAX = 20;
+
+// Tighter Auto-mode caps (SPEC §3): a batch executes automatically
+// only when it also fits these limits and the FX risk score is low.
+export const AUTO_PER_ITEM_CAP_USD = 100;
+export const AUTO_PER_BATCH_CAP_USD = 250;
+export const AUTO_DAILY_CAP_USD = 500;
+export const AUTO_FX_RISK_MAX = 3.0;
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -102,6 +131,15 @@ export const api = {
       method: 'DELETE',
     }),
   health: () => req<{ status: string; sandbox: boolean; batches: number }>('/api/health'),
+  getMode: () => req<ModeState>('/api/treasury/mode'),
+  setMode: (mode: TreasuryMode) =>
+    req<ModeState>('/api/treasury/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
+  setPaused: (paused: boolean) =>
+    req<ModeState>('/api/treasury/mode/pause', {
+      method: 'POST',
+      body: JSON.stringify({ paused }),
+    }),
+  getAudit: () => req<{ entries: AuditEntry[] }>('/api/treasury/audit'),
 };
 
 // FX rates — Frankfurter API (ECB reference rates), the sole FX source
