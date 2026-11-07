@@ -52,15 +52,30 @@ The system follows an event-driven, micro-service architecture separating client
 
 ---
 
-### 1.1 AI Model Configuration (fixed 2026-11-06)
+### 1.1 AI Model Configuration (fixed 2026-11-06; Gemini added 2026-11-07)
 
-Runtime AI provider is OpenAI only. The model is read from the
-`OPENAI_MODEL` env var, default `gpt-4o`; the key is `OPENAI_API_KEY`
-(env only, never in code). Changing the model is a config change only:
-no code change, and the advisor output is still re-validated against
-the invoice and the approval policy before anything is signed or sent.
-GPT-4o is the default, NOT a requirement: any OpenAI chat-completion
-model may be used.
+Two runtime AI providers behind one advisor interface: OpenAI (default)
+and Gemini. The provider is `AI_PROVIDER` (`openai` | `gemini`, default
+`openai`); OpenAI reads `OPENAI_MODEL` (default `gpt-4o`, key
+`OPENAI_API_KEY`), Gemini reads `GEMINI_MODEL` (default
+`gemini-2.5-flash`, key `GEMINI_API_KEY`, endpoint
+`generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`,
+key in the `x-goog-api-key` header, never in the URL). Keys are env
+only, never in code. A judge can also bring their own key at runtime:
+POST `/api/treasury/advisor/config` `{ provider, apiKey?, model? }`
+sets a session-only override (in-memory only — the key is never saved,
+logged, or returned; GET returns `{ provider, model, keySet }`); DELETE
+clears it and falls back to env. Changing the provider or model is a
+config change only: no code change, and the advisor output is still
+re-validated against the invoice and the approval policy before anything
+is signed or sent. `modelUsed` in the advise response always names the
+provider and model actually used (`openai/gpt-4o`,
+`gemini/gemini-2.5-flash`). GPT-4o is the default model, NOT a
+requirement: any OpenAI chat-completion model may be used, and any
+Gemini model may be used via `GEMINI_MODEL` or BYOK. Free-tier caveat:
+Gemini free-tier content may be used to improve Google's products, so
+the PII mask (SPEC §6) applies before any LLM call on either provider —
+raw recipient emails are never sent.
 
 ## 2. Data Models & Schemas
 

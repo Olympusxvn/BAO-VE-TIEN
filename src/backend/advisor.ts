@@ -1,13 +1,18 @@
-// FX advisor (SPEC §1.1, RULE.md §1/§3). OpenAI only, native fetch.
-// Model from OPENAI_MODEL (default gpt-4o — default, NOT a requirement);
-// key from OPENAI_API_KEY (env only). The system prompt is the only
-// trusted instruction; batch data is untrusted input and is sanitized
+// FX advisor (SPEC §1.1, RULE.md §1/§3). Two providers behind one
+// interface: OpenAI (default) and Gemini (second provider, added
+// 2026-11-07). Native fetch, no SDK. The model is config-only:
+// OPENAI_MODEL (default gpt-4o) or GEMINI_MODEL (default
+// gemini-2.5-flash); the provider is AI_PROVIDER (openai | gemini,
+// default openai), or the runtime BYOK config (POST
+// /api/treasury/advisor/config). The system prompt is the only trusted
+// instruction; batch data is untrusted input and is sanitized
 // (PayoutGuard.sanitizeForLLM) before ANY of it reaches the LLM — raw
-// recipient emails are NEVER sent. LLM output is re-validated and
-// grounded against the batch before use. On ANY failure (no key, LLM
-// error, invalid JSON, grounding failure, FX unavailable) the advisor
-// returns HOLD with a rule-based score; a HOLD recommendation never
-// executes in either mode.
+// recipient emails are NEVER sent. This matters more on the Gemini free
+// tier, whose content may be used to improve Google's products. LLM
+// output is re-validated and grounded against the batch before use. On
+// ANY failure (no key, LLM error, invalid JSON, grounding failure, FX
+// unavailable) the advisor returns HOLD with a rule-based score; a HOLD
+// recommendation never executes in either mode.
 // This route never approves or executes anything itself: execution stays
 // behind the manual approve endpoint or the Auto-mode gate (SPEC §3.1),
 // both of which re-check the policy before any PayPal call.
@@ -17,22 +22,32 @@ import type { Batch } from './store.js';
 
 export type AdvisorRecommendation = 'EXECUTE_NOW' | 'HOLD' | 'SPLIT_BATCH';
 
+export type AdvisorProvider = 'openai' | 'gemini';
+
 export interface AdvisorResult {
   recommendation: AdvisorRecommendation;
   /** FX risk score, 0.0 (low risk) to 10.0 (high risk). */
   fxRiskScore: number;
   reason: string;
+  /** Always "provider/model", e.g. "openai/gpt-4o" or "gemini/gemini-2.5-flash". */
   model: string;
   /** 'llm' when the LLM answer passed validation; 'rule' on any fallback. */
   source: 'llm' | 'rule';
 }
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const DEFAULT_OPENAI_MODEL = 'gpt-4o';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const RECOMMENDATIONS: readonly AdvisorRecommendation[] = [
   'EXECUTE_NOW',
   'HOLD',
   'SPLIT_BATCH',
 ];
+
+/** Gemini public API (API-key auth). The key goes in the
+ * x-goog-api-key header — never in the URL query string. */
+const geminiUrl = (model: string): string =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
 const SYSTEM_PROMPT = [
   'You are the FX advisor for BAO VE TIEN, an autonomous treasury.',
@@ -153,9 +168,140 @@ function groundingError(
   return null;
 }
 
+export interface AdvisorConfig {
+  provider: AdvisorProvider;
+  apiKey: string;
+  model: string;
+}
+
+function asProvider(value: string | undefined): AdvisorProvider | null {
+  return value === 'openai' || value === 'gemini' ? value : null;
+}
+
+/**
+ * Resolves the effective provider/key/model: explicit overrides win,
+ * then env, then defaults. An unknown AI_PROVIDER falls back to openai.
+ * The returned apiKey is for the provider call only — never log it or
+ * return it from any endpoint.
+ */
+export function resolveAdvisorConfig(
+  overrides: { provider?: string; apiKey?: string; model?: string } = {},
+): AdvisorConfig {
+  const provider =
+    asProvider(overrides.provider) ?? asProvider(process.env.AI_PROVIDER) ?? 'openai';
+  const apiKey =
+    overrides.apiKey ??
+    (provider === 'gemini' ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY) ??
+    '';
+  const model =
+    overrides.model ??
+    (provider === 'gemini' ? process.env.GEMINI_MODEL : process.env.OPENAI_MODEL) ??
+    (provider === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_OPENAI_MODEL);
+  return { provider, apiKey, model };
+}
+
+/** "provider/model" label for AdvisorResult.model and the audit log. */
+export function modelLabel(config: AdvisorConfig): string {
+  return `${config.provider}/${config.model}`;
+}
+
+type LlmCall = { ok: true; text: string } | { ok: false; error: string };
+
+async function callOpenAi(
+  fetchImpl: typeof fetch,
+  apiKey: string,
+  model: string,
+  userContent: string,
+): Promise<LlmCall> {
+  let res: Response;
+  try {
+    res = await fetchImpl(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: `OpenAI request failed (${err instanceof Error ? err.message : String(err)}).`,
+    };
+  }
+  if (!res.ok) {
+    return { ok: false, error: `OpenAI request failed: HTTP ${res.status}.` };
+  }
+  try {
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const text = data.choices?.[0]?.message?.content ?? '';
+    if (!text.trim()) return { ok: false, error: 'OpenAI returned no content.' };
+    return { ok: true, text };
+  } catch {
+    return { ok: false, error: 'OpenAI returned invalid JSON.' };
+  }
+}
+
+async function callGemini(
+  fetchImpl: typeof fetch,
+  apiKey: string,
+  model: string,
+  userContent: string,
+): Promise<LlmCall> {
+  let res: Response;
+  try {
+    res = await fetchImpl(geminiUrl(model), {
+      method: 'POST',
+      headers: {
+        // Key in the header, never in the URL: keys in URLs leak into
+        // shell history and any proxy or error log.
+        'x-goog-api-key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `${SYSTEM_PROMPT}\n\n${userContent}` }] }],
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Gemini request failed (${err instanceof Error ? err.message : String(err)}).`,
+    };
+  }
+  if (!res.ok) {
+    return { ok: false, error: `Gemini request failed: HTTP ${res.status}.` };
+  }
+  try {
+    const data = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const text = (data.candidates?.[0]?.content?.parts ?? [])
+      .map((part) => part.text ?? '')
+      .join('')
+      .trim();
+    if (!text) return { ok: false, error: 'Gemini returned no content.' };
+    return { ok: true, text };
+  } catch {
+    return { ok: false, error: 'Gemini returned invalid JSON.' };
+  }
+}
+
 export interface AdviseDeps {
   fetchImpl?: typeof fetch;
   fxFetch?: typeof fetch;
+  provider?: string;
   apiKey?: string;
   model?: string;
 }
@@ -165,8 +311,13 @@ export async function adviseBatch(
   deps: AdviseDeps = {},
 ): Promise<AdvisorResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const apiKey = deps.apiKey ?? process.env.OPENAI_API_KEY ?? '';
-  const model = deps.model ?? process.env.OPENAI_MODEL ?? 'gpt-4o';
+  const config = resolveAdvisorConfig({
+    provider: deps.provider,
+    apiKey: deps.apiKey,
+    model: deps.model,
+  });
+  const modelUsed = modelLabel(config);
+  const providerLabel = config.provider === 'gemini' ? 'Gemini' : 'OpenAI';
 
   // FX first: the rule-based score needs it, and a batch with non-USD
   // items cannot be assessed at all without rates.
@@ -178,14 +329,14 @@ export async function adviseBatch(
   }
   const hasNonUsd = batch.items.some((item) => item.currency !== 'USD');
   if (hasNonUsd && !rates) {
-    return holdWithRule(batch.items, null, 'FX rates unavailable.', model);
+    return holdWithRule(batch.items, null, 'FX rates unavailable.', modelUsed);
   }
-  if (!apiKey) {
+  if (!config.apiKey) {
     return holdWithRule(
       batch.items,
       rates,
-      'OpenAI API key not configured — rule-based assessment only.',
-      model,
+      `${providerLabel} API key not configured — rule-based assessment only.`,
+      modelUsed,
     );
   }
 
@@ -206,52 +357,31 @@ export async function adviseBatch(
     rates: rates ? { EUR: rates.EUR, GBP: rates.GBP, SGD: rates.SGD } : null,
     ruleScore: ruleBasedScore(batch.items, rates).score,
   });
+  const userContent = JSON.stringify(sanitized);
 
-  let res: Response;
-  try {
-    res = await fetchImpl(OPENAI_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: JSON.stringify(sanitized) },
-        ],
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-  } catch (err) {
-    return holdWithRule(
-      batch.items,
-      rates,
-      `OpenAI request failed (${err instanceof Error ? err.message : String(err)}).`,
-      model,
-    );
-  }
-  if (!res.ok) {
-    return holdWithRule(
-      batch.items,
-      rates,
-      `OpenAI request failed: HTTP ${res.status}.`,
-      model,
-    );
+  const call =
+    config.provider === 'gemini'
+      ? await callGemini(fetchImpl, config.apiKey, config.model, userContent)
+      : await callOpenAi(fetchImpl, config.apiKey, config.model, userContent);
+  if (!call.ok) {
+    return holdWithRule(batch.items, rates, call.error, modelUsed);
   }
 
   let parsed: unknown;
   try {
-    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    let content = data.choices?.[0]?.message?.content ?? '';
     // Tolerate a fenced code block around the JSON; the contract is JSON.
-    content = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const content = call.text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
     parsed = JSON.parse(content);
   } catch {
-    return holdWithRule(batch.items, rates, 'OpenAI returned invalid JSON.', model);
+    return holdWithRule(
+      batch.items,
+      rates,
+      `${providerLabel} returned invalid JSON.`,
+      modelUsed,
+    );
   }
 
   const knownAmounts = new Set<string>();
@@ -265,7 +395,7 @@ export async function adviseBatch(
   knownAmounts.add(totalUsd.toFixed(2));
   const error = groundingError(parsed, batch.items, [...knownAmounts]);
   if (error) {
-    return holdWithRule(batch.items, rates, `${error}.`, model);
+    return holdWithRule(batch.items, rates, `${error}.`, modelUsed);
   }
   const out = parsed as {
     recommendation: AdvisorRecommendation;
@@ -276,7 +406,7 @@ export async function adviseBatch(
     recommendation: out.recommendation,
     fxRiskScore: Math.round(out.fxRiskScore * 10) / 10,
     reason: out.reason.trim(),
-    model,
+    model: modelUsed,
     source: 'llm',
   };
 }

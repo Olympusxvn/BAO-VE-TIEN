@@ -82,8 +82,9 @@ npm test               # SPEC §6 tests 1, 4, 5 + webhook + server smoke tests
 
 Routes: `POST /api/treasury/batches` (create DRAFT), `GET
 /api/treasury/batches[/:id]`, `POST /api/treasury/batches/:id/advise`
-(OpenAI FX advisor — stores recommendation + FX risk score, never
-approves or executes; without `OPENAI_API_KEY` it returns HOLD with a
+(AI FX advisor — OpenAI default, Gemini option, see AI providers —
+stores recommendation + FX risk score, never approves or executes;
+without a key for the active provider it returns HOLD with a
 rule-based score and makes no LLM call), `POST
 /api/treasury/batches/:id/approve` (human approval gate — re-checks caps,
 allow-list and daily spend, then executes; a failing batch stays
@@ -135,6 +136,28 @@ window — enable Auto only if confident in the policy. That is also
 what makes the entry truly agentic: in Auto mode the AI decides and
 acts within a pre-approved policy, not just recommends. The demo video
 should feature Auto executing a real sandbox batch.
+
+## AI providers — OpenAI (default) + Gemini, judge BYOK
+
+Two providers behind one advisor interface. OpenAI is the default
+(model `gpt-4o` via `OPENAI_MODEL`, key `OPENAI_API_KEY`). Gemini is
+the second provider (model `gemini-2.5-flash` via `GEMINI_MODEL`, key
+`GEMINI_API_KEY`, endpoint `generativelanguage.googleapis.com`, key sent
+in the `x-goog-api-key` header, never in the URL). Select with
+`AI_PROVIDER=openai|gemini` (default `openai`).
+
+A judge can bring their own key at runtime, from the dashboard's
+"Advisor provider" panel or `POST /api/treasury/advisor/config`
+`{ provider, apiKey?, model? }`: the key lives in memory for this
+session only — it is never saved, logged, or returned
+(`GET /api/treasury/advisor/config` returns `{ provider, model, keySet }`);
+`DELETE /api/treasury/advisor/config` clears it and falls back to env.
+The advise response's `model` always names the provider and model
+actually used (`openai/gpt-4o`, `gemini/gemini-2.5-flash`).
+
+Free-tier caveat: Gemini free-tier content may be used to improve
+Google's products, so the PII mask applies before any LLM call on
+either provider — raw recipient emails are never sent to an LLM.
 
 ## Safety
 

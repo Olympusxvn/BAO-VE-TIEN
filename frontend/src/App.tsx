@@ -7,6 +7,8 @@ import {
   getFxRates,
   spentToday,
   type AdviseResult,
+  type AdvisorConfig,
+  type AdvisorProvider,
   type Batch,
   type FxRates,
   type ModeState,
@@ -15,6 +17,7 @@ import {
 } from './api';
 import { LedgerGrid, toGridRows } from './LedgerGrid';
 import {
+  AdvisorConfigPanel,
   AdvisorPanel,
   AllowlistManager,
   AutoConfirmDialog,
@@ -38,6 +41,7 @@ export default function App() {
   const [modeState, setModeState] = useState<ModeState | null>(null);
   const [showAutoConfirm, setShowAutoConfirm] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
+  const [advisorConfig, setAdvisorConfig] = useState<AdvisorConfig | null>(null);
   const errorTimer = useRef<number | null>(null);
 
   const showError = useCallback((message: string) => {
@@ -55,14 +59,16 @@ export default function App() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, { allowlist: list2 }, mode] = await Promise.all([
+      const [list, { allowlist: list2 }, mode, advisorCfg] = await Promise.all([
         api.listBatches(),
         api.getAllowlist(),
         api.getMode(),
+        api.getAdvisorConfig(),
       ]);
       setBatches(list);
       setAllowlist(list2);
       setModeState(mode);
+      setAdvisorConfig(advisorCfg);
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to load the ledger.');
     } finally {
@@ -254,6 +260,38 @@ export default function App() {
     [showError],
   );
 
+  // Judge BYOK: provider + key + model for this session only. An empty
+  // key keeps the current key; an empty model keeps the current model.
+  const handleSaveAdvisorConfig = useCallback(
+    async (input: { provider: AdvisorProvider; apiKey: string; model: string }) => {
+      setBusy('advisor-config');
+      try {
+        const next = await api.setAdvisorConfig({
+          provider: input.provider,
+          ...(input.apiKey ? { apiKey: input.apiKey } : {}),
+          ...(input.model ? { model: input.model } : {}),
+        });
+        setAdvisorConfig(next);
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Failed to save advisor settings.');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [showError],
+  );
+
+  const handleClearAdvisorConfig = useCallback(async () => {
+    setBusy('advisor-config');
+    try {
+      setAdvisorConfig(await api.clearAdvisorConfig());
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to clear advisor settings.');
+    } finally {
+      setBusy(null);
+    }
+  }, [showError]);
+
   const sseLabel: Record<SseState, string> = {
     connecting: 'Live updates: connecting…',
     connected: 'Live updates: connected',
@@ -372,6 +410,13 @@ export default function App() {
               />
               <CreateBatchForm busy={busy === 'create'} onCreate={handleCreate} />
             </div>
+
+            <AdvisorConfigPanel
+              config={advisorConfig}
+              busy={busy === 'advisor-config'}
+              onSave={handleSaveAdvisorConfig}
+              onClear={handleClearAdvisorConfig}
+            />
 
             <AllowlistManager
               allowlist={allowlist}

@@ -3,9 +3,21 @@
 // lost on restart. A later slice persists them; the approval policy in
 // PayoutGuard does not depend on where they are stored.
 import { randomUUID } from 'node:crypto';
-import type { AdvisorRecommendation } from './advisor.js';
+import type { AdvisorProvider, AdvisorRecommendation } from './advisor.js';
 import type { PayoutItem } from '../models/PayoutItem.js';
 import { RECIPIENT_ALLOWLIST_MAX } from '../guard/payoutGuard.js';
+
+/**
+ * Judge BYOK (bring your own key) runtime advisor config: partial
+ * overrides over env. In-memory only — the key is never written to
+ * disk, never logged, and never returned by any endpoint. All fields
+ * are optional: an absent field falls back to env / defaults.
+ */
+export interface AdvisorRuntimeConfig {
+  provider?: AdvisorProvider;
+  apiKey?: string;
+  model?: string;
+}
 
 export type BatchStatus =
   | 'DRAFT'
@@ -69,6 +81,31 @@ export class TreasuryStore {
   paused = false;
   /** In-memory audit log (chronological). Demo only, lost on restart. */
   readonly audit: AuditEntry[] = [];
+
+  /** BYOK runtime advisor config (judge's key/model), in-memory only.
+   * Null means "use env config". Lost on restart, by design. */
+  advisorRuntime: AdvisorRuntimeConfig | null = null;
+
+  /** Merges a BYOK patch over the current runtime config. An empty
+   * apiKey or model removes that override (falls back to env). */
+  setAdvisorRuntime(patch: AdvisorRuntimeConfig): void {
+    const merged: AdvisorRuntimeConfig = { ...(this.advisorRuntime ?? {}) };
+    if (patch.provider !== undefined) merged.provider = patch.provider;
+    if (patch.apiKey !== undefined) {
+      if (patch.apiKey === '') delete merged.apiKey;
+      else merged.apiKey = patch.apiKey;
+    }
+    if (patch.model !== undefined) {
+      if (patch.model === '') delete merged.model;
+      else merged.model = patch.model;
+    }
+    this.advisorRuntime = merged;
+  }
+
+  /** Clears the BYOK config entirely — the advisor falls back to env. */
+  clearAdvisorRuntime(): void {
+    this.advisorRuntime = null;
+  }
 
   logAudit(kind: AuditKind, detail: Record<string, unknown>): AuditEntry {
     const entry: AuditEntry = {

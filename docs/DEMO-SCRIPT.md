@@ -27,8 +27,9 @@ Everything else in the PRD/SPEC is a target until measured live.
   (wall-clock seconds, from click to the PayPal response).
 - Webhook-to-UI: seconds from the `PAYMENT.PAYOUTSBATCH.*` event to the
   ledger updating over SSE.
-- Live OpenAI advise: model actually used (from `OPENAI_MODEL`), time, and
-  the recommendation + score shown. Name that model in the README/video.
+- Live AI advise (OpenAI or Gemini): model actually used (from
+  `OPENAI_MODEL` / `GEMINI_MODEL` or BYOK), time, and the recommendation
+  + score shown. Name that model in the README/video.
 - FX rate shown on screen at demo time (Frankfurter, dated).
 
 ## Shot list (budget ~170 s)

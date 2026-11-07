@@ -80,7 +80,7 @@ function withEnv(t: import('node:test').TestContext, vars: Record<string, string
 }
 
 async function startServer(deps: {
-  openaiFetch?: typeof fetch;
+  llmFetch?: typeof fetch;
   fxFetch?: typeof fetch;
   paypalFetch?: typeof fetch;
 }) {
@@ -144,7 +144,7 @@ test('(a) HUMAN mode never auto-executes, even with EXECUTE_NOW', async (t) => {
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(validAdvice()),
+    llmFetch: openaiStub(validAdvice()),
     fxFetch: fxStub(),
     paypalFetch: paypalStub(calls),
   });
@@ -175,7 +175,7 @@ test('(b) AUTO mode executes when every condition holds, and logs it', async (t)
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(validAdvice()),
+    llmFetch: openaiStub(validAdvice()),
     fxFetch: fxStub(),
     paypalFetch: paypalStub(calls),
   });
@@ -232,7 +232,7 @@ test('(c) advisor HOLD blocks auto-execution with no PayPal call', async (t) => 
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(
+    llmFetch: openaiStub(
       validAdvice({ recommendation: 'HOLD', fxRiskScore: 5.0, reason: 'FX risk is high for the $50.00 item; total $50.00.' }),
     ),
     fxFetch: fxStub(),
@@ -257,7 +257,7 @@ test('(c) item $101 exceeds the Auto per-item cap and blocks execution', async (
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(
+    llmFetch: openaiStub(
       validAdvice({ reason: 'Low FX risk for the $101.00 item; total $101.00.' }),
     ),
     fxFetch: fxStub(),
@@ -283,7 +283,7 @@ test('(c) batch $270 exceeds the Auto per-batch cap and blocks execution', async
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(
+    llmFetch: openaiStub(
       validAdvice({ reason: 'Low FX risk for the $90.00 item; total $270.00.' }),
     ),
     fxFetch: fxStub(),
@@ -311,7 +311,7 @@ test('(c) auto daily budget already spent blocks execution', async (t) => {
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base, store } = await startServer({
-    openaiFetch: openaiStub(validAdvice()),
+    llmFetch: openaiStub(validAdvice()),
     fxFetch: fxStub(),
     paypalFetch: paypalStub(calls),
   });
@@ -336,7 +336,7 @@ test('(c) FX risk score 3.0 is not below the Auto maximum and blocks execution',
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(validAdvice({ fxRiskScore: 3.0 })),
+    llmFetch: openaiStub(validAdvice({ fxRiskScore: 3.0 })),
     fxFetch: fxStub(),
     paypalFetch: paypalStub(calls),
   });
@@ -362,7 +362,7 @@ test('(c) off-allow-list recipient blocks auto-execution', async (t) => {
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(validAdvice()),
+    llmFetch: openaiStub(validAdvice()),
     fxFetch: fxStub(),
     paypalFetch: paypalStub(calls),
   });
@@ -386,7 +386,7 @@ test('(c) paused Auto mode blocks auto-execution', async (t) => {
   withEnv(t, DUMMY_CREDS);
   const calls = { calls: 0 };
   const { server, base } = await startServer({
-    openaiFetch: openaiStub(validAdvice()),
+    llmFetch: openaiStub(validAdvice()),
     fxFetch: fxStub(),
     paypalFetch: paypalStub(calls),
   });

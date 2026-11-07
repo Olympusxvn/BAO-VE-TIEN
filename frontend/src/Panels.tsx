@@ -1,6 +1,6 @@
 // Dashboard panels: summary cards, advisor, allow-list, create-batch form.
 // Every number shown here is derived from the API — nothing is seeded.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   ALLOWLIST_MAX,
@@ -9,8 +9,12 @@ import {
   AUTO_PER_BATCH_CAP_USD,
   AUTO_PER_ITEM_CAP_USD,
   DAILY_CAP_USD,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_OPENAI_MODEL,
   PAYOUT_CURRENCIES,
   type AdviseResult,
+  type AdvisorConfig,
+  type AdvisorProvider,
   type Batch,
   type ModeState,
   type PayoutCurrency,
@@ -193,6 +197,107 @@ export function AdvisorPanel({
       >
         {asking ? 'Asking advisor…' : 'Ask advisor'}
       </button>
+    </section>
+  );
+}
+
+/**
+ * Advisor provider config — judge BYOK (bring your own key). The key
+ * input is a password field, it is cleared after saving, and the stored
+ * key is never rendered back: the backend only reports whether a key
+ * is set. Saving without a key keeps the current key (env or previous
+ * BYOK); Clear removes the runtime config and falls back to env.
+ */
+export function AdvisorConfigPanel({
+  config,
+  busy,
+  onSave,
+  onClear,
+}: {
+  config: AdvisorConfig | null;
+  busy: boolean;
+  onSave: (input: { provider: AdvisorProvider; apiKey: string; model: string }) => void;
+  onClear: () => void;
+}) {
+  const [provider, setProvider] = useState<AdvisorProvider>('openai');
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('');
+
+  // Follow the effective provider when the backend config loads.
+  useEffect(() => {
+    if (config) setProvider(config.provider);
+  }, [config]);
+
+  const defaultModel = provider === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_OPENAI_MODEL;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    onSave({ provider, apiKey: apiKey.trim(), model: model.trim() });
+    setApiKey(''); // Never keep the key in the form after saving.
+  };
+
+  return (
+    <section className="panel" aria-label="Advisor provider">
+      <h2>Advisor provider</h2>
+      <p className="muted">
+        {config
+          ? `Using ${config.provider} / ${config.model} — API key ${config.keySet ? 'set' : 'not set'}.`
+          : 'Loading advisor config…'}
+      </p>
+      <p className="muted">
+        Bring your own key: the judge enters their own provider key and
+        model here. Your key stays in this session only — it is never saved
+        or logged.
+      </p>
+      <form onSubmit={submit} className="stack-form">
+        <div className="form-row">
+          <label>
+            Provider
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value as AdvisorProvider)}
+              disabled={busy}
+            >
+              <option value="openai">OpenAI (default)</option>
+              <option value="gemini">Gemini (free tier)</option>
+            </select>
+          </label>
+          <label>
+            Model
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder={defaultModel}
+              disabled={busy}
+            />
+          </label>
+        </div>
+        <label>
+          API key <span className="muted">(leave blank to keep the current key)</span>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={provider === 'gemini' ? 'Gemini API key' : 'OpenAI API key'}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+        <div className="dialog-actions">
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? 'Saving…' : 'Save provider settings'}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={busy || !config?.keySet}
+            onClick={onClear}
+            title="Remove the session key and fall back to env config"
+          >
+            Clear
+          </button>
+        </div>
+      </form>
     </section>
   );
 }

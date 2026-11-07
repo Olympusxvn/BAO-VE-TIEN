@@ -19,7 +19,7 @@ Mid-market cross-border enterprises, D2C brands, and global digital platforms fa
 3. **Disjointed Compliance & Error Resolution:** When cross-border payouts fail due to local currency restrictions, finance teams waste days manually diagnosing raw JSON error logs rather than resolving them instantaneously.
 
 ### The BAO VE TIEN Solution
-**BAO VE TIEN** puts AI directly "behind the wheel" of corporate treasury operations. Using **GPT-4o by default (OpenAI API; model configurable via `OPENAI_MODEL`, default `gpt-4o`)** as the sole runtime AI for natural language treasury commands and financial forecasting, the system evaluates real-time FX trends, generates optimized payout batches, with the Payouts client verified at build time against the PayPal OpenAPI spec using the **APIMatic Context Plugin** (build time only), renders high-density analytics in **AG Grid Community**, and triggers batch disbursements via **PayPal Payouts REST API** with real-time **Webhook** feedback loops.
+**BAO VE TIEN** puts AI directly "behind the wheel" of corporate treasury operations. Using **OpenAI by default (model configurable via `OPENAI_MODEL`, default `gpt-4o`) with Gemini as a second provider (model via `GEMINI_MODEL`, default `gemini-2.5-flash`; provider via `AI_PROVIDER`)** as the runtime AI for natural language treasury commands and financial forecasting, the system evaluates real-time FX trends, generates optimized payout batches, with the Payouts client verified at build time against the PayPal OpenAPI spec using the **APIMatic Context Plugin** (build time only), renders high-density analytics in **AG Grid Community**, and triggers batch disbursements via **PayPal Payouts REST API** with real-time **Webhook** feedback loops.
 
 ---
 

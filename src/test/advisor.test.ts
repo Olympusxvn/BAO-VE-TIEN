@@ -147,7 +147,7 @@ test('(c) ungrounded amount in the LLM answer returns HOLD', async (t) => {
 test('(d) valid stubbed EXECUTE_NOW is stored on the batch via POST /:id/advise', async (t) => {
   withEnv(t, { OPENAI_API_KEY: 'test-key-not-real' });
   const { app } = createApp({
-    openaiFetch: openaiStub(validAdvice()),
+    llmFetch: openaiStub(validAdvice()),
     fxFetch: fxStub(),
   });
   const server = await new Promise<import('node:http').Server>((resolve) => {
@@ -175,7 +175,7 @@ test('(d) valid stubbed EXECUTE_NOW is stored on the batch via POST /:id/advise'
   const advice = (await advised.json()) as AdvisorResult & { batchId: string };
   assert.equal(advice.recommendation, 'EXECUTE_NOW');
   assert.equal(advice.fxRiskScore, 2.5);
-  assert.equal(advice.model, 'gpt-4o');
+  assert.equal(advice.model, 'openai/gpt-4o');
   assert.equal(advice.source, 'llm');
 
   const fetched = (await (await fetch(`${base}/api/treasury/batches/${batch.id}`)).json()) as {
@@ -274,7 +274,7 @@ test('(f) end-to-end with stubbed PayPal: advise -> allow-list -> approve -> PEN
     );
   }) as typeof fetch;
   const { app } = createApp({
-    openaiFetch: openaiStub(
+    llmFetch: openaiStub(
       validAdvice({ reason: 'Low FX risk for the $1.00 item; total $1.00.' }),
     ),
     fxFetch: fxStub(),

@@ -7,13 +7,17 @@
 // outside policy. Both paths execute through the same executeBatchPayout
 // with the policy re-checked; there is NO route that executes an
 // unauthorized batch. The advisor (POST /:id/advise) only recommends;
-// OPENAI_API_KEY / OPENAI_MODEL come from env (see .env.example).
+// its provider is OpenAI (default) or Gemini, from env (AI_PROVIDER,
+// OPENAI_API_KEY / OPENAI_MODEL, GEMINI_API_KEY / GEMINI_MODEL) or the
+// judge's BYOK runtime config (POST /api/treasury/advisor/config,
+// in-memory only — the key is never saved, logged, or returned).
+// See .env.example.
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type Express, type Request, type Response } from 'express';
-import { adviseBatch } from './backend/advisor.js';
+import { adviseBatch, resolveAdvisorConfig } from './backend/advisor.js';
 import { payoutEvents } from './backend/events.js';
 import { getFxRates, toUsd, type FxRates } from './backend/fx.js';
 import {
@@ -145,7 +149,8 @@ function buildPayoutPayload(batch: Batch): {
  * the production path — stubs exist only inside unit tests. */
 export interface AppDeps {
   paypalFetch?: typeof fetch;
-  openaiFetch?: typeof fetch;
+  /** LLM transport stub (both providers). Production uses global fetch. */
+  llmFetch?: typeof fetch;
   fxFetch?: typeof fetch;
 }
 
@@ -368,9 +373,14 @@ export function createApp(deps: AppDeps = {}): { app: Express; store: TreasurySt
       res.status(409).send({ error: `Batch ${id} is ${batch.status}; advice is closed` });
       return;
     }
+    // BYOK runtime overrides (judge's provider/key/model) win over env;
+    // absent fields fall back to env inside resolveAdvisorConfig.
     const result = await adviseBatch(batch, {
-      fetchImpl: deps.openaiFetch,
+      fetchImpl: deps.llmFetch,
       fxFetch: deps.fxFetch,
+      provider: store.advisorRuntime?.provider,
+      apiKey: store.advisorRuntime?.apiKey,
+      model: store.advisorRuntime?.model,
     });
     batch.fxRiskScore = result.fxRiskScore;
     batch.recommendation = result.recommendation;
@@ -395,6 +405,67 @@ export function createApp(deps: AppDeps = {}): { app: Express; store: TreasurySt
       status: batch.status,
       payoutBatchId: batch.payoutBatchId,
     });
+  });
+
+  // Advisor config — judge BYOK (bring your own key). The runtime
+  // config overrides env for this session only and lives in memory:
+  // the key is never written to disk, never logged, and never returned
+  // by any endpoint. GET reports only { provider, model, keySet }.
+  const advisorConfigView = (): {
+    provider: 'openai' | 'gemini';
+    model: string;
+    keySet: boolean;
+  } => {
+    const config = resolveAdvisorConfig({
+      provider: store.advisorRuntime?.provider,
+      apiKey: store.advisorRuntime?.apiKey,
+      model: store.advisorRuntime?.model,
+    });
+    // keySet only — the key itself (or any part of it) never leaves.
+    return { provider: config.provider, model: config.model, keySet: config.apiKey !== '' };
+  };
+
+  app.get('/api/treasury/advisor/config', (_req: Request, res: Response) => {
+    res.status(200).send(advisorConfigView());
+  });
+
+  app.post('/api/treasury/advisor/config', (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      provider?: unknown;
+      apiKey?: unknown;
+      model?: unknown;
+    };
+    if (
+      body.provider !== undefined &&
+      body.provider !== 'openai' &&
+      body.provider !== 'gemini'
+    ) {
+      res.status(400).send({ error: 'Body provider must be "openai" or "gemini"' });
+      return;
+    }
+    if (body.apiKey !== undefined && typeof body.apiKey !== 'string') {
+      res.status(400).send({ error: 'Body apiKey must be a string' });
+      return;
+    }
+    if (
+      body.model !== undefined &&
+      (typeof body.model !== 'string' || body.model.trim() === '')
+    ) {
+      res.status(400).send({ error: 'Body model must be a non-empty string' });
+      return;
+    }
+    store.setAdvisorRuntime({
+      ...(body.provider !== undefined ? { provider: body.provider } : {}),
+      ...(body.apiKey !== undefined ? { apiKey: body.apiKey } : {}),
+      ...(body.model !== undefined ? { model: body.model } : {}),
+    });
+    res.status(200).send(advisorConfigView());
+  });
+
+  // Clears the BYOK config entirely — the advisor falls back to env.
+  app.delete('/api/treasury/advisor/config', (_req: Request, res: Response) => {
+    store.clearAdvisorRuntime();
+    res.status(200).send(advisorConfigView());
   });
 
   // Allow-list management (demo only, no auth in this slice). Adding an

@@ -68,8 +68,8 @@ This Product Requirements Document (PRD) defines the functional requirements, us
   * Fetch live exchange rates at configurable intervals (e.g., hourly/daily).
   * Calculate volatility indices and spread differentials for cross-border pairs.
 
-#### Feature 1.2: GPT-4o Execution Window Advisor
-* **Description:** GPT-4o analyzes historical volatility and upcoming invoice due dates to rank payout urgency versus exchange rate favorability.
+#### Feature 1.2: AI Execution Window Advisor (OpenAI + Gemini)
+* **Description:** The AI advisor (OpenAI by default, Gemini as a second provider) analyzes historical volatility and upcoming invoice due dates to rank payout urgency versus exchange rate favorability. Provider via `AI_PROVIDER` (`openai` | `gemini`, default `openai`); OpenAI model `gpt-4o` by default, Gemini model `gemini-2.5-flash` by default; a judge may bring their own key and model at runtime (POST `/api/treasury/advisor/config`, in-memory only — never saved, logged, or returned). The advise response names the provider and model actually used (`openai/gpt-4o`, `gemini/gemini-2.5-flash`).
 * **Requirements:**
   * Categorize payout batches into three confidence tiers: **Execute Now** (Low FX Risk), **Hold** (High Volatility), **Urgent Due** (Override FX for compliance).
   * Display reasoning in natural language alongside quantitative savings estimates.
@@ -100,9 +100,9 @@ This Product Requirements Document (PRD) defines the functional requirements, us
 ---
 
 ### Feature 2.4: Approval Modes — Human-default / Auto-supervised
-* **Description:** Human mode (default): no batch reaches PayPal without a human approval. The GPT-4o advisor recommends; the treasurer approves in the grid. Auto mode (opt-in): a batch that passes the policy, the tighter auto caps, an EXECUTE_NOW recommendation and a low FX risk score executes automatically — supervised autonomy within a pre-approved policy, never unsupervised spending. (Modes added 2026-11-07; this supersedes the 2026-11-06 "human approval mandatory before every batch" wording. See SPEC §3.1.)
+* **Description:** Human mode (default): no batch reaches PayPal without a human approval. The AI advisor recommends; the treasurer approves in the grid. Auto mode (opt-in): a batch that passes the policy, the tighter auto caps, an EXECUTE_NOW recommendation and a low FX risk score executes automatically — supervised autonomy within a pre-approved policy, never unsupervised spending. (Modes added 2026-11-07; this supersedes the 2026-11-06 "human approval mandatory before every batch" wording. See SPEC §3.1.)
 * **Requirements:**
-  * Approve button ("Approve & Execute") per batch, disabled unless the batch is within caps (per-item $250, per-batch $500, daily $1,000 USD-equivalent), every recipient is on the allow-list (max 20), and the GPT-4o recommendation is EXECUTE_NOW. The disabled reason is shown. A manual Approve click still works in Auto mode.
+  * Approve button ("Approve & Execute") per batch, disabled unless the batch is within caps (per-item $250, per-batch $500, daily $1,000 USD-equivalent), every recipient is on the allow-list (max 20), and the advisor recommendation is EXECUTE_NOW. The disabled reason is shown. A manual Approve click still works in Auto mode.
   * Over-cap or off-allow-list batches are `AWAITING_APPROVAL` and are never sent. A treasurer override still cannot exceed the daily cap.
   * Backend re-checks caps, allow-list and daily spend in `POST /api/treasury/batches/:id/approve` and in `executeBatchPayout`. There is no API path that executes an unauthorized batch; auto execution uses the same `executeBatchPayout` path.
   * Auto mode executes only when ALL hold: advisor `EXECUTE_NOW`, standard policy passes, tighter auto caps hold (per-item ≤ $100, per-batch ≤ $250, auto-spent-today + batch total ≤ $500), `fxRiskScore < 3.0`, mode AUTO and not paused. Any failing condition leaves the batch `AWAITING_APPROVAL` with the blocking reasons shown.

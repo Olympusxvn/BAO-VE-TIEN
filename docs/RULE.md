@@ -40,7 +40,7 @@
 
 # Payout Currencies (Fixed 2026-11-06): Payouts are sent ONLY in `USD`, `EUR`, `GBP`, `SGD`. VND is NOT a PayPal REST Payouts currency and must never appear as a payout `currency` value. A VND invoice is displayed in VND and converted to USD at the Frankfurter rate for the PayPal call, with the rate shown.
 #
-# FX Source & AI Identity (Fixed 2026-11-06; model made configurable 2026-11-06): The sole runtime AI provider is OpenAI. The model is configurable via the `OPENAI_MODEL` env var, default `gpt-4o` (key in `OPENAI_API_KEY`, also env only). Switching models is a config change only — no code change, no new trust boundary, and the output is still re-validated against the invoice before signing. GPT-4o is the default, NOT a requirement: any OpenAI chat-completion model may be used. The sole FX source is the Frankfurter API (ECB reference rates), `GET https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,SGD`, refreshed hourly and cached. If the FX source or GPT-4o times out or rate-limits, the advisor returns HOLD with a rule-based score; a HOLD recommendation never executes in either mode (in Human mode nothing executes without a human Approve click; in Auto mode only EXECUTE_NOW within policy can execute — see the approval-modes rule below).
+# FX Source & AI Identity (Fixed 2026-11-06; model made configurable 2026-11-06; Gemini added 2026-11-07): Two runtime AI providers behind one advisor interface — OpenAI (default) and Gemini. The provider is `AI_PROVIDER` (`openai` | `gemini`, default `openai`); OpenAI model via `OPENAI_MODEL`, default `gpt-4o` (key `OPENAI_API_KEY`); Gemini model via `GEMINI_MODEL`, default `gemini-2.5-flash` (key `GEMINI_API_KEY`); keys env only, never in code. A judge may bring their own key at runtime (POST `/api/treasury/advisor/config`, in-memory only — never saved, logged, or returned). Switching providers or models is a config change only — no code change, no new trust boundary, and the output is still re-validated against the invoice before signing. GPT-4o is the default model, NOT a requirement: any OpenAI chat-completion model may be used, and any Gemini model may be used via `GEMINI_MODEL` or BYOK. The sole FX source is the Frankfurter API (ECB reference rates), `GET https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,SGD`, refreshed hourly and cached. If the FX source or the advisor times out or rate-limits, the advisor returns HOLD with a rule-based score; a HOLD recommendation never executes in either mode (in Human mode nothing executes without a human Approve click; in Auto mode only EXECUTE_NOW within policy can execute — see the approval-modes rule below). Free-tier caveat: Gemini free-tier content may be used to improve Google's products — the PII mask applies before any LLM call on either provider.
 #
 # Strict Adherence to Current Scope (No Overbuilding):
 
@@ -140,7 +140,7 @@
 
 # 
 
-# MUST sanitize or hash sensitive personally identifiable information (recipient emails, vendor names) before sending transaction logs or context payloads to OpenAI GPT-4o.
+# MUST sanitize or hash sensitive personally identifiable information (recipient emails, vendor names) before sending transaction logs or context payloads to the AI advisor (OpenAI or Gemini).
 
 # 
 
@@ -208,5 +208,5 @@
 
 # 
 
-# \[ ] PII data is masked before sending transaction context to GPT-4o.
+# \[ ] PII data is masked before sending transaction context to the AI advisor.
 

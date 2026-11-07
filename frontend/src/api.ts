@@ -84,6 +84,19 @@ export interface AdviseResult {
   payoutBatchId?: string;
 }
 
+export type AdvisorProvider = 'openai' | 'gemini';
+
+/** Effective advisor config. The key is never returned — only whether
+ * one is set. */
+export interface AdvisorConfig {
+  provider: AdvisorProvider;
+  model: string;
+  keySet: boolean;
+}
+
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o';
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+
 export const PAYOUT_CURRENCIES: readonly PayoutCurrency[] = ['USD', 'EUR', 'GBP', 'SGD'];
 
 export const PER_ITEM_CAP_USD = 250;
@@ -140,6 +153,14 @@ export const api = {
       body: JSON.stringify({ paused }),
     }),
   getAudit: () => req<{ entries: AuditEntry[] }>('/api/treasury/audit'),
+  getAdvisorConfig: () => req<AdvisorConfig>('/api/treasury/advisor/config'),
+  setAdvisorConfig: (input: { provider: AdvisorProvider; apiKey?: string; model?: string }) =>
+    req<AdvisorConfig>('/api/treasury/advisor/config', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  clearAdvisorConfig: () =>
+    req<AdvisorConfig>('/api/treasury/advisor/config', { method: 'DELETE' }),
 };
 
 // FX rates — Frankfurter API (ECB reference rates), the sole FX source
