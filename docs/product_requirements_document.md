@@ -165,7 +165,7 @@ This Product Requirements Document (PRD) defines the functional requirements, us
 
 ---
 
-## 5. Non-Functional Requirements (NFRs)
+## 5. Non-Functional Requirements (NFRs — targets, not measured results; do not claim them in the README or video until measured)
 
 * **Performance:** AG Grid rendering must maintain 60 FPS scrolling for ledgers up to 10,000 rows. Payout submission to PayPal API response latency must be $< 1.5$ seconds in Sandbox.
 * **Security & Privacy:** Strictly zero storage of raw credentials; OAuth tokens cached in memory only. PII masking applied prior to forwarding any transaction context to external AI models.
@@ -174,9 +174,9 @@ This Product Requirements Document (PRD) defines the functional requirements, us
 
 ---
 
-## 6. Success Metrics & Key Performance Indicators (KPIs)
+## 6. Success Metrics & Key Performance Indicators (KPIs — targets, not measured results; do not claim them in the README or video until measured)
 
 * **FX Slippage Reduction:** Achieve an average $\ge 1.5\%$ cost savings on cross-border batch disbursements during test simulations.
 * **API Success Rate:** $100\%$ schema validation compliance through PayoutGuard prior to PayPal API invocation.
-* **Execution Efficiency:** Reduce manual batch payout setup time from minutes to under 10 seconds via natural language AI commands.
+* **Execution Efficiency:** Reduce manual batch payout setup time from minutes to under 10 seconds via natural language AI commands. (Not yet measured; the natural-language command interface is not in the current build — do not demo or claim it.)
 * **Webhook Responsiveness:** $\le 500\text{ ms}$ processing time from receipt of PayPal Webhook event to dashboard UI update.

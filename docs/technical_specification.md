@@ -27,7 +27,7 @@ The system follows an event-driven, micro-service architecture separating client
 │  ┌──────────────────────────────────────────────────────────────────────────────────┐  │
 │  │ GPT-4o Advisor Engine                                                 │  │
 │  │  - Calculates optimal FX windows                                                 │  │
-│  │  - Generates zero-hallucination payout JSON                                      │  │
+│  │  - Generates payout JSON, re-validated and grounded before signing             │  │
 │  └──────────────────────────────────────┬───────────────────────────────────────────┘  │
 │                                         │                                              │
 │                                         ▼                                              │
