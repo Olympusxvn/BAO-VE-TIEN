@@ -3,8 +3,9 @@
 An AI FX advisor that decides when to pay, and pays through PayPal Payouts.
 Built for the PayPal AI Hackathon 2026 ("Build What's Next with PayPal and AI").
 
-The AI recommends, a human approves, PayPal executes. Every batch needs human
-approval before it is sent. Demo caps: $250 per item, $500 per batch,
+Human mode (default): the AI recommends, a human approves, PayPal executes.
+Auto mode (opt-in): the AI executes batches that pass a pre-approved policy
+— see Approval modes below. Demo caps: $250 per item, $500 per batch,
 $1,000 per day (USD-equivalent), recipient allow-list of at most 20.
 Payouts are USD, EUR, GBP, SGD only. A VND invoice is displayed in VND and
 converted to USD at the Frankfurter (ECB) rate before the PayPal call; VND
@@ -12,10 +13,34 @@ is never sent as a payout currency.
 
 ## Status
 
-Early. This repo currently holds the audited design docs and one sandbox
-smoke-test script. The full app (backend, advisor, dashboard) is not built
-yet. Nothing here is a claim about measured performance: every number in the
-docs is either sourced or marked to be measured before the demo video.
+Built and verified: Express backend + PayoutGuard + OpenAI advisor
+(rule-based HOLD fallback) + AG Grid Community dashboard + Human/Auto
+modes. Tests 26 pass / 0 fail / 2 skipped (the 2 live tests skip without
+credentials). Sandbox Payouts proven with a real 201 (see Measured
+numbers). Still open: live OpenAI verification and the Dashboard
+live-approval check.
+
+## Measured numbers
+
+Only these numbers are stated as results here. The full table, the
+method, and the numbers still to measure live are in
+`docs/DEMO-SCRIPT.md`.
+
+- Backend tests: 26 pass / 0 fail / 2 skipped, ~1.9 s (`npm test`,
+  2026-11-07).
+- Frontend build: clean, ~6 s (AG Grid chunk-size warning only).
+- Local API round-trips (no credentials, 2026-11-07): health ~0.01 s,
+  create batch ~0.01 s (201 DRAFT), rule-based advise ~1.36 s (includes
+  the Frankfurter FX fetch), approve to a clear 502 refusal ~0.004 s.
+- Sandbox Payouts: HTTP 201, `payout_batch_id` SZVFXWTEXSY9W,
+  `batch_status` PENDING, $1.00 USD — run on the demo machine,
+  2026-11-07. A sandbox 201 proves sandbox Payouts works; it does not
+  prove live Payouts approval.
+- Frankfurter FX (rates dated 2026-11-05): EUR 0.89095, GBP 0.74299,
+  SGD 1.2773 per USD.
+
+No FX-savings percentage, payout-latency figure, or FPS number is
+claimed anywhere in this repo until it is measured live.
 
 ## Contents
 
