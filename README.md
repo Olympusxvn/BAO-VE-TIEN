@@ -56,13 +56,17 @@ npm test               # SPEC §6 tests 1, 4, 5 + webhook + server smoke tests
 ```
 
 Routes: `POST /api/treasury/batches` (create DRAFT), `GET
-/api/treasury/batches[/:id]`, `POST /api/treasury/batches/:id/approve`
-(human approval gate — re-checks caps, allow-list and daily spend, then
-executes; a failing batch stays `AWAITING_APPROVAL`), `GET
+/api/treasury/batches[/:id]`, `POST /api/treasury/batches/:id/advise`
+(OpenAI FX advisor — stores recommendation + FX risk score, never
+approves or executes; without `OPENAI_API_KEY` it returns HOLD with a
+rule-based score and makes no LLM call), `POST
+/api/treasury/batches/:id/approve` (human approval gate — re-checks caps,
+allow-list and daily spend, then executes; a failing batch stays
+`AWAITING_APPROVAL`), `GET`/`POST`/`DELETE /api/treasury/allowlist`
+(recipient allow-list, max 20, demo only, no auth), `GET
 /api/treasury/events` (SSE payout updates), `POST /api/webhooks/paypal`
 (signature-verified), `GET /api/health`. No route executes an unapproved
 batch. Batches, the allow-list and daily spend are in-memory (demo only).
-The LLM advisor is a later slice; `OPENAI_*` is not used here.
 
 ## Safety
 

@@ -1,10 +1,11 @@
 // BAO VE TIEN backend slice (Nov 8 plan, started Nov 7).
 // Express + native fetch only. Sandbox ONLY — no live PayPal URL anywhere.
 // Human approval is mandatory: there is NO route that executes an
-// unapproved batch. The advisor (LLM) is a later slice; OPENAI_* env vars
-// are documented in .env.example but not used here.
+// unapproved batch. The advisor (POST /:id/advise) only recommends;
+// OPENAI_API_KEY / OPENAI_MODEL come from env (see .env.example).
 import { randomUUID } from 'node:crypto';
 import express, { type Express, type Request, type Response } from 'express';
+import { adviseBatch } from './backend/advisor.js';
 import { payoutEvents } from './backend/events.js';
 import { getFxRates, toUsd, type FxRates } from './backend/fx.js';
 import {
@@ -86,9 +87,18 @@ async function toUsdItems(
   };
 }
 
-export function createApp(): { app: Express; store: TreasuryStore } {
+/** Fetch implementations for external calls. Tests pass stubs; the
+ * production server uses the global fetch. Nothing here is mocked in
+ * the production path — stubs exist only inside unit tests. */
+export interface AppDeps {
+  paypalFetch?: typeof fetch;
+  openaiFetch?: typeof fetch;
+  fxFetch?: typeof fetch;
+}
+
+export function createApp(deps: AppDeps = {}): { app: Express; store: TreasuryStore } {
   const store = new TreasuryStore();
-  const paypal = new PayPalPayoutService();
+  const paypal = new PayPalPayoutService(deps.paypalFetch);
   const app = express();
 
   // Express 5 types a route param as string | string[]; :id is single.
@@ -136,6 +146,73 @@ export function createApp(): { app: Express; store: TreasuryStore } {
       return;
     }
     res.status(200).send(batch);
+  });
+
+  // Advisor: runs the FX advisor for a batch and stores the result.
+  // NEVER changes approval state and NEVER executes a payout; execution
+  // stays behind POST /:id/approve only.
+  app.post('/api/treasury/batches/:id/advise', async (req: Request, res: Response) => {
+    const id = routeId(req);
+    const batch = store.getBatch(id);
+    if (!batch) {
+      res.status(404).send({ error: `Batch ${id} not found` });
+      return;
+    }
+    if (batch.status === 'PENDING' || batch.status === 'SUCCESS' || batch.status === 'FAILED') {
+      res.status(409).send({ error: `Batch ${id} is ${batch.status}; advice is closed` });
+      return;
+    }
+    const result = await adviseBatch(batch, {
+      fetchImpl: deps.openaiFetch,
+      fxFetch: deps.fxFetch,
+    });
+    batch.fxRiskScore = result.fxRiskScore;
+    batch.recommendation = result.recommendation;
+    batch.advisorReason = result.reason;
+    batch.modelUsed = result.model;
+    for (const item of batch.items) item.fxRiskScore = result.fxRiskScore;
+    res.status(200).send({
+      batchId: batch.id,
+      recommendation: result.recommendation,
+      fxRiskScore: result.fxRiskScore,
+      reason: result.reason,
+      model: result.model,
+      source: result.source,
+    });
+  });
+
+  // Allow-list management (demo only, no auth in this slice). Adding an
+  // entry persists in the same store the approve path reads, so an
+  // allow-listed recipient can be approved via the API right away.
+  app.get('/api/treasury/allowlist', (_req: Request, res: Response) => {
+    res.status(200).send({ allowlist: [...store.allowlist] });
+  });
+
+  app.post('/api/treasury/allowlist', (req: Request, res: Response) => {
+    const email = (req.body as { email?: unknown } | null)?.email;
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).send({ error: 'Body must be { "email": "<valid email>" }' });
+      return;
+    }
+    const outcome = store.addAllowlist(email);
+    if (outcome === 'duplicate') {
+      res.status(409).send({ error: `Email ${email} is already on the allow-list` });
+      return;
+    }
+    if (outcome === 'full') {
+      res.status(422).send({ error: 'Allow-list is full (max 20 entries)' });
+      return;
+    }
+    res.status(201).send({ allowlist: [...store.allowlist] });
+  });
+
+  app.delete('/api/treasury/allowlist/:email', (req: Request, res: Response) => {
+    const email = Array.isArray(req.params.email) ? req.params.email[0] : req.params.email;
+    if (!store.removeAllowlist(email)) {
+      res.status(404).send({ error: `Email ${email} is not on the allow-list` });
+      return;
+    }
+    res.status(200).send({ allowlist: [...store.allowlist] });
   });
 
   app.post('/api/treasury/batches/:id/approve', async (req: Request, res: Response) => {
