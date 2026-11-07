@@ -45,6 +45,25 @@ enabled for the sandbox app yet; a 401 means the sandbox credentials in
 `.env` are wrong. A sandbox 201 proves sandbox Payouts works; it does not
 prove live Payouts approval.
 
+## Run the backend (Nov 8 slice)
+
+```bash
+npm install
+cp .env.example .env   # fill in PAYPAL_SANDBOX_CLIENT_ID / PAYPAL_SANDBOX_CLIENT_SECRET
+npm run build
+npm start              # http://localhost:3000 (sandbox only)
+npm test               # SPEC §6 tests 1, 4, 5 + webhook + server smoke tests
+```
+
+Routes: `POST /api/treasury/batches` (create DRAFT), `GET
+/api/treasury/batches[/:id]`, `POST /api/treasury/batches/:id/approve`
+(human approval gate — re-checks caps, allow-list and daily spend, then
+executes; a failing batch stays `AWAITING_APPROVAL`), `GET
+/api/treasury/events` (SSE payout updates), `POST /api/webhooks/paypal`
+(signature-verified), `GET /api/health`. No route executes an unapproved
+batch. Batches, the allow-list and daily spend are in-memory (demo only).
+The LLM advisor is a later slice; `OPENAI_*` is not used here.
+
 ## Safety
 
 - Sandbox base URL only in the test script (`api-m.sandbox.paypal.com`).
