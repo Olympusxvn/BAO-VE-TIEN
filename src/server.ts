@@ -675,6 +675,8 @@ function main(): void {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Main-module check that works on Windows (argv[1] uses backslashes).
+const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
+if (invokedPath === fileURLToPath(import.meta.url)) {
   main();
 }
